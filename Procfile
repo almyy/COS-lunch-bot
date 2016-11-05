@@ -1,0 +1,1 @@
+runbot: python bot.py
