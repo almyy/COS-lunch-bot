@@ -80,7 +80,8 @@ def handle_command(command, channel):
             attachments.append({
                 "title": "NO LUNCH IN THE WEEKEND, FOOL!",
                 "text": "Stupid...",
-                "fallback": "There's no lunch on weekends, stupid"
+                "fallback": "There's no lunch on weekends, stupid",
+                "color": "danger"
             })
         else:
             for (key, value) in menus.items():
