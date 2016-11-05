@@ -87,7 +87,8 @@ def handle_command(command, channel):
                 attachments.append({
                     "title": key,
                     "text": value,
-                    "fallback": key + " - " + value
+                    "fallback": key + " - " + value,
+                    "color": "good"
                 })
     else:
         attachments.append({
