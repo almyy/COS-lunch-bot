@@ -5,9 +5,27 @@ import json
 import time
 from slackclient import SlackClient
 
+class Vote(object):
+
+    users_voted = []
+    votes = {}
+
+    def __init__(self, menu):
+        for (_, value) in menu.items():
+            self.votes[value] = 0
+
+    def vote(self, selection, user):
+        if user in self.users_voted:
+            print("user already voted")
+            return False
+        self.votes[selection] += 1
+        self.users_voted.append(user)
+        print("vote accepted")
+        return True
 
 slack_client = SlackClient(os.environ.get('SLACK_BOT_TOKEN'))
-
+vote = None
+index_restaurant = {}
 
 def get_bot_id():
     bot_name = 'lunchbot'
@@ -30,8 +48,8 @@ def parse_slack_output(slack_rtm_output, bot_id):
     if output_list and len(output_list) > 0:
         for output in output_list:
             if output and 'text' in output and at_bot in output['text']:
-                return output['text'].split(at_bot)[1].strip().lower(), output['channel']
-    return None, None
+                return output['text'].split(at_bot)[1].strip().lower(), output['channel'], output['user']
+    return None, None, None
 
 
 def parse_menu_json(menus):
@@ -74,7 +92,7 @@ def find_menu():
     return parse_menu_json(res.json())
 
 
-def handle_command(command, channel):
+def handle_command(command, channel, user):
     attachments = []
     if "lunch" in command:
         menus = find_menu()
@@ -93,6 +111,41 @@ def handle_command(command, channel):
                     "fallback": key + " - " + value,
                     "color": "good"
                 })
+    elif "vote" in command:
+        if vote is None:
+            menus = find_menu()
+            i = 0
+            text = ""
+            for key in menus:
+                text += "\n" + key + "(" + str(i) + "): 0"
+                index_restaurant[i] = key
+                i += 1 
+            global vote
+            vote = Vote(index_restaurant)
+            attachments.append({
+                "title": "Starting vote...",
+                "text": "Tag me with 'vote #', and I'll register your vote!\nExample: @lunchbot vote 1" + text,
+                "fallback": "Vote for lunch started",
+                "color": "good"
+            })
+        else:
+            #Dirty af
+            selection = command.split('vote')[1].split()[0].strip()
+            try:
+                selection = int(selection)
+            except:
+                print("Fuck, i broke")
+            global vote
+            if vote.vote(index_restaurant[selection], user):
+                text = ""
+                for (key, value) in vote.votes.items():
+                    text += key + ": " + str(value) + " votes\n"
+                print(text)
+                attachments.append({
+                    "title": "Vote",
+                    "text": text,
+                    "fallback": "Votes are in"
+                })
     else:
         attachments.append({
             "title": "Too dumb",
@@ -109,13 +162,13 @@ if __name__ == "__main__":
             print("lunchbot connected and running!")
             while True:
                 try:
-                    command, channel = parse_slack_output(slack_client.rtm_read(), bot_id)
+                    command, channel, user = parse_slack_output(slack_client.rtm_read(), bot_id)
                 #Fuck it, gotta catch 'em all
                 except Exception as e:
-                    print("Caught an exception while trying to read: " + e + "\nReconnecting...")
-                    slack_client.rtm_connect(reconnect=true)
-                if command and channel:
-                    handle_command(command, channel)
+                    print("Caught an exception while trying to read:\nReconnecting...", e)
+                    slack_client.rtm_connect()
+                if command and channel and user:
+                    handle_command(command, channel, user)
                 time.sleep(1)
         else:
             print("Connection failed. Invalid Slack token or bot ID?")
