@@ -4,6 +4,8 @@ import datetime
 import json
 import time
 from slackclient import SlackClient
+
+
 slack_client = SlackClient(os.environ.get('SLACK_BOT_TOKEN'))
 
 
@@ -106,7 +108,12 @@ if __name__ == "__main__":
         if slack_client.rtm_connect():
             print("lunchbot connected and running!")
             while True:
-                command, channel = parse_slack_output(slack_client.rtm_read(), bot_id)
+                try:
+                    command, channel = parse_slack_output(slack_client.rtm_read(), bot_id)
+                #Fuck it, gotta catch 'em all
+                except Exception as e:
+                    print("Caught an exception while trying to read: " + e + "\nReconnecting...")
+                    slack_client.rtm_connect(reconnect=true)
                 if command and channel:
                     handle_command(command, channel)
                 time.sleep(1)
