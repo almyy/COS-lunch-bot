@@ -1,12 +1,14 @@
-import requests
-import os
 import datetime
-import json
+import os
 import time
+
+import requests
 from slackclient import SlackClient
 
-class Vote(object):
+from menu import Menu
 
+
+class Vote(object):
     users_voted = []
     votes = {}
 
@@ -23,9 +25,12 @@ class Vote(object):
         print("vote accepted")
         return True
 
+
 slack_client = SlackClient(os.environ.get('SLACK_BOT_TOKEN'))
 vote = None
 index_restaurant = {}
+cached_menu = None
+
 
 def get_bot_id():
     bot_name = 'lunchbot'
@@ -52,21 +57,12 @@ def parse_slack_output(slack_rtm_output, bot_id):
     return None, None, None
 
 
-def parse_menu_json(menus):
-    res_obj = {}
-    for r in menus['results']:
-        if r['restaurant']['objectId'] == 'vhYbt71R5s':
-            res_obj['Eat the street'] = r['lunchMenuEN']
-        elif r['restaurant']['objectId'] == 'tnaU8GppPK':
-            res_obj['Soup and sandwich'] = r['lunchMenuEN']
-        elif r['restaurant']['objectId'] == 'bzQ7G5WKro':
-            res_obj['Fresh 4 you'] = r['lunchMenuEN']
-    return res_obj
-
-
 def find_menu():
-    today = datetime.date.today()
-    tomorrow = datetime.date.today() + datetime.timedelta(days=1)
+    global cached_menu
+    if cached_menu is not None and cached_menu.is_menu_valid(datetime.date.today()):
+        return cached_menu
+    today = datetime.date.today() - datetime.timedelta(days=2)
+    tomorrow = today + datetime.timedelta(days=1)
     if today.weekday() == 5 or today.weekday() == 6:
         return None
 
@@ -89,10 +85,12 @@ def find_menu():
         "X-Parse-Application-Id": "nAixMGyDvVeNfeWEectyJrvtqSeKregQs2gLh9Aw"
     }
     res = requests.post("http://lunch-menu.herokuapp.com/parse/classes/Menu", json=json_obj, headers=headers)
-    return parse_menu_json(res.json())
+    cached_menu = Menu.from_json(res.json())
+    return cached_menu
 
 
 def handle_command(command, channel, user):
+    global vote
     attachments = []
     if "lunch" in command:
         menus = find_menu()
@@ -104,11 +102,11 @@ def handle_command(command, channel, user):
                 "color": "danger"
             })
         else:
-            for (key, value) in menus.items():
+            for menu_item in menus.get_menu():
                 attachments.append({
-                    "title": key,
-                    "text": value,
-                    "fallback": key + " - " + value,
+                    "title": menu_item.itemName,
+                    "text": menu_item.itemValue,
+                    "fallback": menu_item.itemName + " - " + menu_item.itemValue,
                     "color": "good"
                 })
     elif "vote" in command:
@@ -119,8 +117,7 @@ def handle_command(command, channel, user):
             for key in menus:
                 text += "\n" + key + "(" + str(i) + "): 0"
                 index_restaurant[i] = key
-                i += 1 
-            global vote
+                i += 1
             vote = Vote(index_restaurant)
             attachments.append({
                 "title": "Starting vote...",
@@ -129,13 +126,12 @@ def handle_command(command, channel, user):
                 "color": "good"
             })
         else:
-            #Dirty af
+            # Dirty af
             selection = command.split('vote')[1].split()[0].strip()
             try:
                 selection = int(selection)
             except:
                 print("Fuck, i broke")
-            global vote
             if vote.vote(index_restaurant[selection], user):
                 text = ""
                 for (key, value) in vote.votes.items():
@@ -163,7 +159,7 @@ if __name__ == "__main__":
             while True:
                 try:
                     command, channel, user = parse_slack_output(slack_client.rtm_read(), bot_id)
-                #Fuck it, gotta catch 'em all
+                # Fuck it, gotta catch 'em all
                 except Exception as e:
                     print("Caught an exception while trying to read:\nReconnecting...", e)
                     slack_client.rtm_connect()
