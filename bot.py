@@ -6,24 +6,7 @@ import requests
 from slackclient import SlackClient
 
 from menu import Menu
-
-
-class Vote(object):
-    users_voted = []
-    votes = {}
-
-    def __init__(self, menu):
-        for (_, value) in menu.items():
-            self.votes[value] = 0
-
-    def vote(self, selection, user):
-        if user in self.users_voted:
-            print("user already voted")
-            return False
-        self.votes[selection] += 1
-        self.users_voted.append(user)
-        print("vote accepted")
-        return True
+from vote import Vote
 
 
 slack_client = SlackClient(os.environ.get('SLACK_BOT_TOKEN'))
@@ -89,66 +72,122 @@ def find_menu():
     return cached_menu
 
 
+def is_int(input):
+    if input is None:
+        return False
+    try:
+        int(input)
+        return True
+    except ValueError:
+        return False
+
+
 def handle_command(command, channel, user):
     global vote
     attachments = []
     if "lunch" in command:
-        menus = find_menu()
-        if menus is None:
-            attachments.append({
-                "title": "NO LUNCH IN THE WEEKEND, FOOL!",
-                "text": "Stupid...",
-                "fallback": "There's no lunch on weekends, stupid",
-                "color": "danger"
-            })
-        else:
-            for menu_item in menus.get_menu():
-                attachments.append({
-                    "title": menu_item.itemName,
-                    "text": menu_item.itemValue,
-                    "fallback": menu_item.itemName + " - " + menu_item.itemValue,
-                    "color": "good"
-                })
+        attachments = create_menu_message(attachments)
     elif "vote" in command:
-        if vote is None:
-            menus = find_menu()
-            i = 0
-            text = ""
-            for key in menus:
-                text += "\n" + key + "(" + str(i) + "): 0"
-                index_restaurant[i] = key
-                i += 1
-            vote = Vote(index_restaurant)
+        selection = split_vote_command(command)
+        #in case vote is not initialized, or if it's not valid for today (could be initialized yesterday), initialize it
+        if (vote is None or not vote.is_valid_for(datetime.date.today())):
+            attachments = initialize_voting(attachments, False)
+        elif vote is not None and selection == "reset":
+            print('Voting reseted by user {}'.format(user))
+            attachments = initialize_voting(attachments, True)
+        else:
+            attachments = add_vote(attachments, command, user, vote, selection=selection)
+    else:
+        create_default_message(attachments)
+    slack_client.api_call("chat.postMessage", channel=channel, as_user=True, attachments=attachments)
+
+
+def create_menu_message(attachments):
+    menus = find_menu()
+    if menus is None:
+        attachments.append({
+            "title": "NO LUNCH IN THE WEEKEND, FOOL!",
+            "text": "Stupid...",
+            "fallback": "There's no lunch on weekends, stupid",
+            "color": "danger"
+        })
+    else:
+        for menu_item in menus.get_menu():
             attachments.append({
-                "title": "Starting vote...",
-                "text": "Tag me with 'vote #', and I'll register your vote!\nExample: @lunchbot vote 1" + text,
-                "fallback": "Vote for lunch started",
+                "title": menu_item.itemName,
+                "text": menu_item.itemValue,
+                "fallback": menu_item.itemName + " - " + menu_item.itemValue,
                 "color": "good"
             })
-        else:
-            # Dirty af
-            selection = command.split('vote')[1].split()[0].strip()
-            try:
-                selection = int(selection)
-            except:
-                print("Fuck, i broke")
-            if vote.vote(index_restaurant[selection], user):
-                text = ""
-                for (key, value) in vote.votes.items():
-                    text += key + ": " + str(value) + " votes\n"
-                print(text)
-                attachments.append({
-                    "title": "Vote",
-                    "text": text,
-                    "fallback": "Votes are in"
-                })
-    else:
+    return attachments
+
+
+def initialize_voting(attachments, reset):
+    global vote
+    menus = find_menu()
+    i = 0
+    text = ""
+    for menu_item in menus.get_menu():
+        text += "\n" + menu_item.itemName + "(" + str(i) + "): 0"
+        index_restaurant[i] = menu_item.itemName
+        i += 1
+    vote = Vote(index_restaurant)
+    title = "Restaring the vote (by <@{}>)".format(user) if reset else "Starting vote..."
+    attachments.append({
+        "title": title,
+        "text": "Tag me with 'vote #', and I'll register your vote!\nExample: @lunchbot vote 1" + text,
+        "fallback": "Vote for lunch started",
+        "color": "good"
+    })
+    return attachments
+
+
+def add_vote(attachments, command, user, vote, selection):
+    is_proper_selection_value = False
+    if is_int(selection):
+        selection = int(selection)
+        if selection >= 0 and selection < len(find_menu().get_menu()):
+            is_proper_selection_value = True
+    if not is_proper_selection_value:
+        # prepare the message for the fucker that sent this
+        message = "<@{}> tried to kill me! He/She is a botkiller and likes Fresh4You restaurant!".format(
+            user)
         attachments.append({
-            "title": "Too dumb",
-            "text": "I'm not smart enough to understand that. Try something with lunch",
-            "fallback": "That's not a command"
+            "title": "Veggie lover!",
+            "text": message,
+            "fallback": "Smartass",
+            "color": "danger"
         })
-    slack_client.api_call("chat.postMessage", channel=channel, as_user=True, attachments=attachments)
+    else:
+        if vote.vote(index_restaurant[selection], user):
+            text = ""
+            for (key, value) in vote.votes.items():
+                text += key + ": " + str(value) + " votes\n"
+            print(text)
+            attachments.append({
+                "title": "Vote",
+                "text": text,
+                "fallback": "Votes are in"
+            })
+    return attachments
+
+
+def split_vote_command(command):
+    selection = command.split('vote')[1].strip()
+    if selection != '':
+        selection = selection.split()[0].strip()
+    else:
+        selection = None
+    return selection
+
+
+
+def create_default_message(attachments):
+    attachments.append({
+        "title": "Too dumb",
+        "text": "I'm not smart enough to understand that. Try something with lunch",
+        "fallback": "That's not a command"
+    })
 
 
 if __name__ == "__main__":
