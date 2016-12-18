@@ -44,7 +44,7 @@ def find_menu():
     global cached_menu
     if cached_menu is not None and cached_menu.is_menu_valid(datetime.date.today()):
         return cached_menu
-    today = datetime.date.today() - datetime.timedelta(days=2)
+    today = datetime.date.today()
     tomorrow = today + datetime.timedelta(days=1)
     if today.weekday() == 5 or today.weekday() == 6:
         return None
