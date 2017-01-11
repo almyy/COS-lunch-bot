@@ -6,11 +6,11 @@ import requests
 from slackclient import SlackClient
 
 from menu import Menu
-from vote import Vote
+from votebox import VoteBox
 
 
 slack_client = SlackClient(os.environ.get('SLACK_BOT_TOKEN'))
-vote = None
+voteBox = None
 index_restaurant = {}
 cached_menu = None
 
@@ -83,20 +83,30 @@ def is_int(input):
 
 
 def handle_command(command, channel, user):
-    global vote
+    global voteBox
     attachments = []
     if "lunch" in command:
         attachments = create_menu_message(attachments)
     elif "vote" in command:
         selection = split_vote_command(command)
         #in case vote is not initialized, or if it's not valid for today (could be initialized yesterday), initialize it
-        if (vote is None or not vote.is_valid_for(datetime.date.today())):
+        if (voteBox is None or not voteBox.is_valid_for(datetime.date.today())):
             attachments = initialize_voting(attachments, False)
-        elif vote is not None and selection == "reset":
+        elif voteBox is not None and selection == "reset":
             print('Voting reseted by user {}'.format(user))
             attachments = initialize_voting(attachments, True)
         else:
-            attachments = add_vote(attachments, command, user, vote, selection=selection)
+            attachments = add_vote(attachments, command, user, voteBox, selection=selection)
+    elif "show results" in command:
+        if (voteBox is None or not voteBox.is_valid_for(datetime.date.today())):
+            print("Votebox not initialized for today...")
+        else:
+            show_vote_stats(attachments,voteBox)
+    elif "blame" in command:
+        if (voteBox is None or not voteBox.is_valid_for(datetime.date.today())):
+            print("Votebox not initialized for today...")
+        else:
+            show_blame(attachments,voteBox)
     else:
         create_default_message(attachments)
     slack_client.api_call("chat.postMessage", channel=channel, as_user=True, attachments=attachments)
@@ -123,7 +133,7 @@ def create_menu_message(attachments):
 
 
 def initialize_voting(attachments, reset):
-    global vote
+    global voteBox
     menus = find_menu()
     i = 0
     text = ""
@@ -131,8 +141,8 @@ def initialize_voting(attachments, reset):
         text += "\n" + menu_item.itemName + "(" + str(i) + "): 0"
         index_restaurant[i] = menu_item.itemName
         i += 1
-    vote = Vote(index_restaurant)
-    title = "Restaring the vote (by <@{}>)".format(user) if reset else "Starting vote..."
+    voteBox = VoteBox(index_restaurant)
+    title = "Restarting the vote (by <@{}>)".format(user) if reset else "Starting vote..."
     attachments.append({
         "title": title,
         "text": "Tag me with 'vote #', and I'll register your vote!\nExample: @lunchbot vote 1" + text,
@@ -142,11 +152,11 @@ def initialize_voting(attachments, reset):
     return attachments
 
 
-def add_vote(attachments, command, user, vote, selection):
+def add_vote(attachments, command, user, voteBox, selection):
     is_proper_selection_value = False
     if is_int(selection):
         selection = int(selection)
-        if selection >= 0 and selection < len(find_menu().get_menu()):
+        if selection >= -1 and selection < len(find_menu().get_menu()):
             is_proper_selection_value = True
     if not is_proper_selection_value:
         # prepare the message for the fucker that sent this
@@ -159,18 +169,26 @@ def add_vote(attachments, command, user, vote, selection):
             "color": "danger"
         })
     else:
-        if vote.vote(index_restaurant[selection], user):
-            text = ""
-            for (key, value) in vote.votes.items():
-                text += key + ": " + str(value) + " votes\n"
-            print(text)
-            attachments.append({
-                "title": "Vote",
-                "text": text,
-                "fallback": "Votes are in"
-            })
+        if voteBox.vote(selection, user):
+            show_vote_stats(attachments, voteBox)
     return attachments
 
+
+def show_vote_stats(attachments, voteBox):
+    text = voteBox.votes_to_string()
+    print(text)
+    attachments.append({
+        "title": "Vote",
+        "text": text,
+        "fallback": "Votes are in"
+    })
+
+def show_blame(attachments, voteBox):
+    attachments.append({
+        "title": "Votes in detail",
+        "text": voteBox.blame_to_string(),
+        "fallback": "Everyone that voted"
+    })
 
 def split_vote_command(command):
     selection = command.split('vote')[1].strip()
@@ -179,7 +197,6 @@ def split_vote_command(command):
     else:
         selection = None
     return selection
-
 
 
 def create_default_message(attachments):
