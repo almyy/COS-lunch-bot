@@ -8,7 +8,7 @@ class MenuItem:
         self.order = order
 
 
-    def getKey(self):
+    def get_key(self):
         return self.order
 
     def __cmp__(self, other):

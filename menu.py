@@ -12,7 +12,7 @@ class Menu(object):
         self.menuItems.append(menuItem)
 
     def get_menu(self):
-        return sorted(self.menuItems, key=MenuItem.getKey)
+        return sorted(self.menuItems, key=MenuItem.get_key)
 
     def is_menu_valid(self, date):
         return self.cacheTimestamp == date.today()
